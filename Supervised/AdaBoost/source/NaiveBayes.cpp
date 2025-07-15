@@ -7,17 +7,19 @@ using namespace std;
 // constructor
 NaiveBayes::NaiveBayes(double alpha) : alpha(alpha) {}
 
-map<string, double> NaiveBayes::calculate_occurences(vector<string> class_column) {
+// adjusted for weights
+map<string, double> NaiveBayes::calculate_occurences(const vector<string>& class_column, const vector<double>& instance_weights) {
     map<string, double> res;
-    for (const auto& val : class_column) {
-        res[val] += 1;
+    for (size_t i = 0; i < class_column.size(); ++i) {
+        res[class_column[i]] += instance_weights[i];;
     }
     return res;
 }
 
-map<string, double> NaiveBayes::calculate_priors(map<string, double> raw_occurences, int data_size) {
-    for (auto& [class_name, occurences] : raw_occurences) {
-        occurences = log(occurences / data_size);
+// adjusted for weights
+map<string, double> NaiveBayes::calculate_priors(map<string, double> raw_occurences, double total_weight) {
+    for (auto& [class_name, weight_sum] : raw_occurences) {
+        weight_sum = log(weight_sum / total_weight);
     }
     return raw_occurences;
 }
@@ -28,14 +30,14 @@ double NaiveBayes::gaussian_prob(double x, double mean, double var) {
     return coeff * exp(exponent);
 }
 
-void NaiveBayes::learn(string dataset_path, string target_column_name) {
+void NaiveBayes::learn(string dataset_path, string target_column_name, vector<double> instance_weights) {
     rapidcsv::Document data(dataset_path);
     vector<string> target_col = data.GetColumn<string>(target_column_name);
+    double total_weight = accumulate(instance_weights.begin(), instance_weights.end(), 0.0);
     int data_size = target_col.size();
-
-    map<string, double> raw_occurences = calculate_occurences(target_col);
+    map<string, double> raw_occurences = calculate_occurences(target_col, instance_weights);
     class_counts = raw_occurences;
-    priors = calculate_priors(raw_occurences, data_size);
+    priors = calculate_priors(raw_occurences, total_weight);
 
     vector<string> column_names = data.GetColumnNames();
     for (string feature : column_names) {
@@ -58,30 +60,38 @@ void NaiveBayes::learn(string dataset_path, string target_column_name) {
 
             if (is_numerical) {
                 vector<double> numeric_values;
+                vector<double> weights;
                 for (int i = 0; i < data_size; i++) {
                     if (target_col[i] == label) {
                         numeric_values.push_back(stod(feature_values[i]));
+                        weights.push_back(instance_weights[i]);
                     }
                 }
-                double mean = accumulate(numeric_values.begin(), numeric_values.end(), 0.0) / numeric_values.size();
+                double weight_sum = accumulate(weights.begin(), weights.end(), 0.0);
+                double mean = 0.0;
+                for (size_t i = 0; i < numeric_values.size(); ++i)
+                    mean += numeric_values[i] * weights[i];
+                mean /= weight_sum;
+
                 double variance = 0.0;
-                for (double v : numeric_values) variance += (v - mean) * (v - mean);
-                variance /= max(1.0, numeric_values.size() - 1.0);
+                for (size_t i = 0; i < numeric_values.size(); ++i)
+                    variance += weights[i] * (numeric_values[i] - mean) * (numeric_values[i] - mean);
+                variance /= max(1e-9, weight_sum); // Avoid division by zero
                 variance = max(variance, 1e-9);
                 numerical_likelihoods[feature][label] = make_pair(mean, variance);
             }
             else {
-                map<string, int> value_counts;
+                map<string, double> value_counts;
                 for (int i = 0; i < data_size; i++) {
                     if (target_col[i] == label) {
-                        value_counts[feature_values[i]]++;
+                        value_counts[feature_values[i]] += instance_weights[i];;
                     }
                 }
                 set<string> unique_values(feature_values.begin(), feature_values.end());
                 int V = unique_values.size();
                 for (const auto& unique_value : unique_values) {
-                    int count = value_counts[unique_value];
-                    double probability = static_cast<double>(count + alpha) / (occurences + alpha * V);
+                    double count = value_counts[unique_value];
+                    double probability = (count + alpha) / (occurences + alpha * V);
                     likelihoods[feature][label][unique_value] = log(probability);
                 }
             }
@@ -119,8 +129,9 @@ void NaiveBayes::print_likelihoods() {
     }
 }
 
-void NaiveBayes::predict(string dataset_path, string target_column_name) {
+vector<int> NaiveBayes::predict(string dataset_path, string target_column_name) {
     rapidcsv::Document data(dataset_path);
+    vector<int> predictions(data.GetRowCount());
     for (int row_index = 0; row_index < data.GetRowCount(); row_index++) {
         map<string, double> row_probability;
         for (const auto& prior : priors) {
@@ -168,6 +179,9 @@ void NaiveBayes::predict(string dataset_path, string target_column_name) {
                 max_label = label;
             }
         }
-        cout << max_label << "\t" << maximum << "\n";
+        // cout << max_label << "\t" << maximum << "\n";
+        
+        predictions[row_index] = stoi(max_label);
     }
+    return predictions;
 }

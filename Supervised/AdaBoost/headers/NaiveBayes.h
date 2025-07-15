@@ -11,6 +11,7 @@
 #include <iostream>
 #include "rapidcsv.h"
 #include "WeakClassifier.h"
+#include <memory>
 
 class NaiveBayes : public WeakClassifier {
 private:
@@ -24,17 +25,20 @@ private:
     std::map<std::string, double> class_counts;
     std::map<std::string, int> feature_vocabulary_sizes;
 
-    std::map<std::string, double> calculate_occurences(std::vector<std::string> class_column);
-    std::map<std::string, double> calculate_priors(std::map<std::string, double> raw_occurences, int data_size);
+    std::map<std::string, double> calculate_occurences(const std::vector<std::string>& class_column, const std::vector<double>& instance_weights);
+    std::map<std::string, double> calculate_priors(std::map<std::string, double> raw_occurences, double total_weight);
     double gaussian_prob(double x, double mean, double var);
 
 public:
     NaiveBayes(double alpha = 1.0);
 
-    void learn(std::string dataset_path, std::string target_column_name) override;
+    void learn(std::string dataset_path, std::string target_column_name, std::vector<double> weights) override;
     void print_priors();
     void print_likelihoods();
-    void predict(std::string dataset_path, std::string target_column_name) override;
+    std::vector<int> predict(std::string dataset_path, std::string target_column_name) override;
+    std::unique_ptr<WeakClassifier> clone() const override {
+        return std::make_unique<NaiveBayes>(*this); // copy constructor
+    }
 };
 
 #endif // NAIVE_BAYES_H
