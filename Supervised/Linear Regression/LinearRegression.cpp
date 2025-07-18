@@ -12,12 +12,12 @@ using namespace std;
 class LinearRegression {
 private:
     vector<double> parameters;
-    double lambda_reg = 0.1;
+    double lambda_reg = 0.01;
     vector<double> feature_means;
     vector<double> feature_stds;
     vector<string> feature_names;
     double initial_lr = 0.1;
-    double decay_rate = 1e-4;
+    double decay_rate = 1e-6;
     int total_steps = 0;
 
     void standardize_column(rapidcsv::Document& data, const string& column_name) {
@@ -92,14 +92,22 @@ public:
             standardize_column(data, column_name);
         }
         vector<double> intercept_multiplier(instances, 1);
+        cout << data.GetColumnCount() << endl;
         data.InsertColumn(columns, intercept_multiplier, "X_0");
+        cout << data.GetColumnCount() << endl;
         data.RemoveColumn(target_column_name);
+        cout << data.GetColumnCount() << endl;
+
+        for (string col : data.GetColumnNames()) {
+            cout << col << endl;
+        }
 
         init_params(columns);
 
         // we want X*wT since wT is nx1 the X need to be mxn and the result it mx1
         for (int iteration = 0; iteration < 10000; iteration++) {
             // Forward pass: compute predictions
+            // satfisfies Robbins-Monro
             double learning_rate = initial_lr / (1 + decay_rate * total_steps);
             vector<double> prediction(instances, 0.0); // Use double for consistency
             for (int i = 0; i < instances; i++) {
@@ -130,8 +138,9 @@ public:
                     gradient[j] += err * data.GetCell<double>(j, i); // Gradient for parameter j: (col, row)
                 }
                 gradient[j] /= instances; // Average gradient
+                gradient[j] *= 2;
                 if (j != 0) {
-                    gradient[j] += lambda_reg * parameters[j];
+                    gradient[j] += 2 * lambda_reg * parameters[j];
                 }
                 // Update parameter
                 parameters[j] -= learning_rate * gradient[j];
@@ -193,11 +202,11 @@ public:
             return 0.0;
         }
 
-        double prediction = parameters[0]; // Start with intercept
+        standardized_features.push_back(1); // intercept
+        double prediction = 0.0;
         for (size_t j = 0; j < standardized_features.size(); ++j) {
-            prediction += standardized_features[j] * parameters[j + 1];
+            prediction += standardized_features[j] * parameters[j];
         }
-
         return prediction;
     }
 };
